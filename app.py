@@ -1,6 +1,8 @@
-import streamlit as st
-import pandas as pd
+import html
 from datetime import date
+
+import pandas as pd
+import streamlit as st
 
 st.set_page_config(
     page_title="Vendor Outreach Tracker",
@@ -18,6 +20,29 @@ STATUS_ORDER = [
     "Onboarded",
     "Rejected",
 ]
+
+st.markdown(
+    """
+    <style>
+    .block-container {padding-top: 1.25rem; padding-bottom: 2rem; max-width: 1200px;}
+    .demo-note {font-size: .88rem; color: #8b949e; margin-top: -.4rem;}
+    .table-wrap {overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid rgba(128,128,128,.22); border-radius:12px; margin:.4rem 0 1rem 0;}
+    table.demo-table {border-collapse:collapse; width:100%; min-width:760px; font-size:.9rem;}
+    .demo-table th {text-align:left; padding:11px 12px; background:rgba(128,128,128,.12); white-space:nowrap;}
+    .demo-table td {padding:10px 12px; border-top:1px solid rgba(128,128,128,.16); vertical-align:top;}
+    .pill {display:inline-block; padding:3px 8px; border-radius:999px; background:rgba(128,128,128,.16); font-size:.78rem; white-space:nowrap;}
+    .pipeline-row {display:grid; grid-template-columns:145px 1fr 38px; gap:10px; align-items:center; margin:10px 0;}
+    .pipeline-track {height:12px; background:rgba(128,128,128,.18); border-radius:999px; overflow:hidden;}
+    .pipeline-fill {height:100%; background:#ff4b4b; border-radius:999px;}
+    @media (max-width: 700px) {
+      .block-container {padding-left:1rem; padding-right:1rem;}
+      .pipeline-row {grid-template-columns:112px 1fr 26px; font-size:.86rem;}
+      div[data-testid="stMetricValue"] {font-size:1.65rem;}
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 def load_default():
@@ -48,11 +73,47 @@ def due_label(row, today):
     return "Upcoming"
 
 
+def display_value(value):
+    if pd.isna(value):
+        return ""
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%d %b %Y")
+    if isinstance(value, float) and value.is_integer():
+        return f"{int(value):,}"
+    return str(value)
+
+
+def render_table(frame, columns):
+    if frame.empty:
+        st.info("No records to show.")
+        return
+    head = "".join(f"<th>{html.escape(str(c))}</th>" for c in columns)
+    rows = []
+    for _, row in frame.iterrows():
+        cells = []
+        for col in columns:
+            value = display_value(row[col])
+            if col in ["Status", "Follow-up Flag"]:
+                value = f'<span class="pill">{html.escape(value)}</span>'
+            else:
+                value = html.escape(value)
+            cells.append(f"<td>{value}</td>")
+        rows.append("<tr>" + "".join(cells) + "</tr>")
+    table = (
+        '<div class="table-wrap"><table class="demo-table">'
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+    )
+    st.markdown(table, unsafe_allow_html=True)
+
+
 if "vendors" not in st.session_state:
     st.session_state.vendors = load_default()
 
 st.title("Vendor Outreach Tracker")
-st.caption("A simple working demo for vendor outreach, follow-ups, qualification, and onboarding.")
+st.markdown(
+    '<div class="demo-note">Working demo for vendor outreach, follow-ups, qualification and onboarding.</div>',
+    unsafe_allow_html=True,
+)
 
 with st.sidebar:
     st.header("Data")
@@ -61,20 +122,9 @@ with st.sidebar:
         try:
             uploaded_df = pd.read_csv(uploaded)
             required = [
-                "Vendor ID",
-                "Vendor Name",
-                "Contact Person",
-                "Phone",
-                "Email",
-                "Location",
-                "Products",
-                "Printing Methods",
-                "Price / Unit (₹)",
-                "Monthly Capacity",
-                "Status",
-                "Last Contact",
-                "Next Follow-up",
-                "Notes",
+                "Vendor ID", "Vendor Name", "Contact Person", "Phone", "Email",
+                "Location", "Products", "Printing Methods", "Price / Unit (₹)",
+                "Monthly Capacity", "Status", "Last Contact", "Next Follow-up", "Notes",
             ]
             missing = [c for c in required if c not in uploaded_df.columns]
             if missing:
@@ -120,21 +170,9 @@ with tabs[0]:
     if follow.empty:
         st.success("No follow-ups are due today.")
     else:
-        st.dataframe(
-            follow[
-                [
-                    "Vendor Name",
-                    "Contact Person",
-                    "Location",
-                    "Status",
-                    "Last Contact",
-                    "Next Follow-up",
-                    "Follow-up Flag",
-                    "Notes",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
+        render_table(
+            follow,
+            ["Vendor Name", "Contact Person", "Location", "Status", "Last Contact", "Next Follow-up", "Follow-up Flag", "Notes"],
         )
 
 with tabs[1]:
@@ -164,17 +202,10 @@ with tabs[1]:
         ]
 
     display_cols = [
-        "Vendor Name",
-        "Location",
-        "Products",
-        "Printing Methods",
-        "Price / Unit (₹)",
-        "Monthly Capacity",
-        "Status",
-        "Next Follow-up",
-        "Follow-up Flag",
+        "Vendor Name", "Location", "Products", "Printing Methods", "Price / Unit (₹)",
+        "Monthly Capacity", "Status", "Next Follow-up", "Follow-up Flag",
     ]
-    st.dataframe(filtered[display_cols], use_container_width=True, hide_index=True)
+    render_table(filtered, display_cols)
 
     export = filtered.drop(columns=["Follow-up Flag"]).copy()
     for col in ["Last Contact", "Next Follow-up"]:
@@ -205,41 +236,30 @@ with tabs[2]:
         st.write(f"**Status:** {row['Status']}")
         st.write(f"**Price / unit:** ₹{row['Price / Unit (₹)']}")
         st.write(f"**Monthly capacity:** {int(row['Monthly Capacity']):,}")
-        st.write(
-            "**Last contact:** "
-            + (
-                row["Last Contact"].strftime("%d %b %Y")
-                if pd.notna(row["Last Contact"])
-                else "Not contacted"
-            )
-        )
-        st.write(
-            "**Next follow-up:** "
-            + (
-                row["Next Follow-up"].strftime("%d %b %Y")
-                if pd.notna(row["Next Follow-up"])
-                else "Not scheduled"
-            )
-        )
+        st.write("**Last contact:** " + (row["Last Contact"].strftime("%d %b %Y") if pd.notna(row["Last Contact"]) else "Not contacted"))
+        st.write("**Next follow-up:** " + (row["Next Follow-up"].strftime("%d %b %Y") if pd.notna(row["Next Follow-up"]) else "Not scheduled"))
         st.write(f"**Follow-up:** {row['Follow-up Flag']}")
     st.info(row["Notes"] if str(row["Notes"]).strip() else "No notes added.")
 
 with tabs[3]:
     st.subheader("Pipeline summary")
-    status_counts = (
-        df["Status"]
-        .value_counts()
-        .reindex(STATUS_ORDER, fill_value=0)
-        .rename_axis("Status")
-        .reset_index(name="Vendors")
-    )
-    st.bar_chart(status_counts.set_index("Status"))
+    status_counts = df["Status"].value_counts().reindex(STATUS_ORDER, fill_value=0)
+    max_count = max(int(status_counts.max()), 1)
+    pipeline_html = []
+    for status, count in status_counts.items():
+        width = max(4, int((int(count) / max_count) * 100)) if int(count) else 0
+        pipeline_html.append(
+            f'<div class="pipeline-row"><div>{html.escape(status)}</div>'
+            f'<div class="pipeline-track"><div class="pipeline-fill" style="width:{width}%"></div></div>'
+            f'<div>{int(count)}</div></div>'
+        )
+    st.markdown("".join(pipeline_html), unsafe_allow_html=True)
 
     st.subheader("Vendor comparison")
     compare = df[~df["Status"].isin(["Rejected"])][
         ["Vendor Name", "Location", "Price / Unit (₹)", "Monthly Capacity", "Status"]
     ].sort_values(["Price / Unit (₹)", "Monthly Capacity"], ascending=[True, False])
-    st.dataframe(compare, use_container_width=True, hide_index=True)
+    render_table(compare, ["Vendor Name", "Location", "Price / Unit (₹)", "Monthly Capacity", "Status"])
 
 with tabs[4]:
     st.subheader("Add a vendor")
@@ -284,13 +304,9 @@ with tabs[4]:
                     "Next Follow-up": pd.to_datetime(next_follow) if next_follow else pd.NaT,
                     "Notes": notes.strip(),
                 }
-                st.session_state.vendors = pd.concat(
-                    [existing, pd.DataFrame([new_row])], ignore_index=True
-                )
+                st.session_state.vendors = pd.concat([existing, pd.DataFrame([new_row])], ignore_index=True)
                 st.success("Vendor added.")
                 st.rerun()
 
 st.divider()
-st.caption(
-    "Demo uses synthetic data only. A production version could connect to the team's existing Google Sheet or CRM."
-)
+st.caption("Demo uses synthetic data only. A production version could connect to the team's existing Google Sheet or CRM.")
